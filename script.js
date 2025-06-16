@@ -4,9 +4,8 @@ const suggestionsList = document.getElementById("suggestions");
 const clearButton = document.getElementById("clearButton");
 let selectedSuggestionIndex = -1;
 
-// Cache for storing API results
 const searchCache = new Map();
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const CACHE_DURATION = 24 * 60 * 60 * 1000;
 
 function levenshtein(a, b) {
     const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
@@ -25,7 +24,6 @@ function levenshtein(a, b) {
 }
 
 async function searchWikipedia(query) {
-    // Check cache first
     const cached = searchCache.get(query);
     const now = Date.now();
     if (cached && (now - cached.timestamp < CACHE_DURATION)) {
@@ -36,10 +34,8 @@ async function searchWikipedia(query) {
     const res = await fetch(url);
     const data = await res.json();
 
-    // Store in cache
     searchCache.set(query, { data, timestamp: now });
 
-    // Limit cache size to 100 entries
     if (searchCache.size > 100) {
         const oldestKey = searchCache.keys().next().value;
         searchCache.delete(oldestKey);
@@ -137,7 +133,6 @@ function updateHighlight(suggestions) {
     }
 }
 
-// Debounce function to limit API calls
 function debounce(func, wait) {
     let timeout;
     return function (...args) {

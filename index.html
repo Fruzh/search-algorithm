@@ -1,57 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wikipedia AI Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
     <style>
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
+
         .fade-in {
             animation: fadeIn 0.3s ease-out;
         }
+
         .suggestion-highlight {
             background-color: #e5e7eb;
         }
+
         .sticky-search {
             position: sticky;
             top: 0;
             z-index: 10;
-            background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(255,255,255,0.9));
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
             backdrop-filter: blur(8px);
         }
     </style>
 </head>
+
 <body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen p-4 sm:p-6">
     <div class="max-w-3xl w-full mx-auto">
-        <div class="sticky-search p-4">
-            <h1 class="text-2xl sm:text-3xl font-extrabold text-center mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+        <div class="sticky-search p-4 rounded-2xl shadow-xl">
+            <h1
+                class="text-2xl sm:text-3xl font-extrabold text-center mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
                 Search Algorithm
             </h1>
             <div class="relative">
-                <input 
-                    id="searchInput" 
-                    type="text" 
-                    placeholder="Search Wikipedia articles..." 
-                    class="w-full p-4 pr-12 text-lg border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition-all duration-300 bg-white/90 shadow-inner"
-                    autocomplete="off"
-                >
-                <button 
-                    id="clearButton" 
-                    class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors duration-200 hidden"
-                >
+                <input id="searchInput" type="text" placeholder="Search Wikipedia articles..."
+                    class="w-full p-4 pr-12 text-lg border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 transition-all duration-300 bg-white/90 "
+                    autocomplete="off">
+                <button id="clearButton"
+                    class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors duration-200 hidden">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
                     </svg>
                 </button>
             </div>
-            <ul id="suggestions" class="bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden mt-2"></ul>
+            <ul id="suggestions"
+                class="bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden mt-2"></ul>
         </div>
         <div id="results" class="space-y-4 mt-4"></div>
     </div>
     <script src="script.js"></script>
 </body>
+
 </html>
