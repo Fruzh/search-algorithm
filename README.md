@@ -1,4 +1,3 @@
-
 # 🔍 Search Algorithm
 
 A powerful and flexible search interface built with pure HTML, JavaScript, and Tailwind CSS.  

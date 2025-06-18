@@ -2,10 +2,63 @@ const input = document.getElementById("searchInput");
 const results = document.getElementById("results");
 const suggestionsList = document.getElementById("suggestions");
 const clearButton = document.getElementById("clearButton");
+const languageSelect = document.getElementById("languageSelect");
+const loading = document.getElementById("loading");
+const searchInfo = document.getElementById("searchInfo");
+const timeoutWarning = document.getElementById("timeoutWarning");
+const retryButton = document.getElementById("retryButton");
 let selectedSuggestionIndex = -1;
 
 const searchCache = new Map();
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
+const TYPO_TOLERANCE = 2;
+const SEARCH_TIMEOUT = 30000;
+
+const savedLang = localStorage.getItem('language') || 'en';
+i18next.init({
+    lng: savedLang,
+    resources: {
+        en: {
+            translation: {
+                "search_title": "Search Algorithm",
+                "search_placeholder": "Search Wikipedia articles...",
+                "no_results": "No results found. Try another search term.",
+                "search_results_for": "Result for \"{{query}}\" in {{time}} seconds",
+                "search_results_similar": "Result for \"{{query}}\" or similar in {{time}} seconds",
+                "failed_search": "Failed to search. Please try again.",
+                "recommend_search": "Did you mean to search for \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?"
+            }
+        },
+        id: {
+            translation: {
+                "search_title": "Algoritma Pencarian",
+                "search_placeholder": "Cari artikel Wikipedia...",
+                "no_results": "Tidak ada hasil ditemukan. Coba istilah pencarian lain.",
+                "search_results_for": "Hasil untuk \"{{query}}\" dalam {{time}} detik",
+                "search_results_similar": "Hasil untuk \"{{query}}\" atau yang mirip dalam {{time}} detik",
+                "failed_search": "Gagal mencari. Silakan coba lagi.",
+                "recommend_search": "Apakah Anda ingin mencari \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?"
+            }
+        }
+    }
+}, function (err, t) {
+    languageSelect.value = savedLang;
+    updateLanguage();
+});
+
+function updateLanguage() {
+    document.getElementById("search-title").textContent = i18next.t("search_title");
+    document.getElementById("searchInput").placeholder = i18next.t("search_placeholder");
+}
+
+languageSelect.addEventListener("change", () => {
+    const newLang = languageSelect.value;
+    localStorage.setItem('language', newLang);
+    i18next.changeLanguage(newLang, () => {
+        updateLanguage();
+        debouncedSearch();
+    });
+});
 
 function levenshtein(a, b) {
     const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
@@ -23,18 +76,34 @@ function levenshtein(a, b) {
     return dp[a.length][b.length];
 }
 
-async function searchWikipedia(query) {
-    const cached = searchCache.get(query);
+async function searchWikipedia(query, lang = 'en') {
+    const cached = searchCache.get(`${lang}:${query}`);
     const now = Date.now();
     if (cached && (now - cached.timestamp < CACHE_DURATION)) {
         return cached.data;
     }
 
-    const url = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=15&namespace=0&format=json&origin=*`;
-    const res = await fetch(url);
-    const data = await res.json();
+    const openSearchUrl = `https://${lang}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=15&namespace=0&format=json&origin=*`;
+    const openSearchRes = await fetch(openSearchUrl);
+    const openSearchData = await openSearchRes.json();
+    const titles = openSearchData[1];
 
-    searchCache.set(query, { data, timestamp: now });
+    if (!titles.length) {
+        return { search: [], pages: {}, titles: [] };
+    }
+
+    const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&origin=*&list=search&srsearch=${encodeURIComponent(query)}&srlimit=15`;
+    const searchRes = await fetch(searchUrl);
+    const searchData = await searchRes.json();
+
+    const allTitles = [...new Set([...titles, ...searchData.query.search.map(item => item.title)])].join('|');
+    const extractUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(allTitles)}`;
+    const extractRes = await fetch(extractUrl);
+    const extractData = await extractRes.json();
+
+    const data = { search: searchData.query.search, pages: extractData.query.pages, titles: openSearchData[1] };
+
+    searchCache.set(`${lang}:${query}`, { data, timestamp: now });
 
     if (searchCache.size > 100) {
         const oldestKey = searchCache.keys().next().value;
@@ -44,38 +113,62 @@ async function searchWikipedia(query) {
     return data;
 }
 
-async function suggestAlternative(query) {
-    const altSearch = await searchWikipedia(query.slice(0, 3));
-    const [_, titles] = altSearch;
-    return titles.filter(title => levenshtein(title.toLowerCase(), query.toLowerCase()) <= 3);
+async function suggestAlternative(query, lang = 'en') {
+    const url = `https://${lang}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=15&namespace=0&format=json&origin=*`;
+    const res = await fetch(url);
+    const [_, titles] = await res.json();
+    return titles.filter(title => levenshtein(title.toLowerCase(), query.toLowerCase()) <= TYPO_TOLERANCE);
 }
 
-function prioritizeResults(titles, descs, links, query) {
+function prioritizeResults(searchItems, pages, titles, query) {
     const lowerQuery = query.toLowerCase();
-    const results = titles.map((title, i) => ({
-        title,
-        desc: descs[i],
-        link: links[i],
-        score: calculateScore(title, lowerQuery)
-    }));
+    const results = [];
 
-    return results.sort((a, b) => b.score - a.score);
+    titles.forEach(title => {
+        const page = Object.values(pages).find(p => p.title === title);
+        if (page && !page.missing) {
+            results.push({
+                title,
+                desc: page.extract || i18next.t("no_results"),
+                link: `https://${languageSelect.value}.wikipedia.org/wiki/${encodeURIComponent(title)}`,
+                score: calculateScore(title, page.extract || "", lowerQuery)
+            });
+        }
+    });
+
+    searchItems.forEach(item => {
+        if (!results.some(r => r.title.toLowerCase() === item.title.toLowerCase())) {
+            const page = Object.values(pages).find(p => p.title === item.title);
+            if (page && !page.missing) {
+                results.push({
+                    title: item.title,
+                    desc: page.extract || i18next.t("no_results"),
+                    link: `https://${languageSelect.value}.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
+                    score: calculateScore(item.title, page.extract || "", lowerQuery)
+                });
+            }
+        }
+    });
+
+    return results.sort((a, b) => b.score - a.score).slice(0, 15);
 }
 
-function calculateScore(title, query) {
+function calculateScore(title, desc, query) {
     const lowerTitle = title.toLowerCase();
+    const lowerDesc = desc.toLowerCase();
     let score = 0;
 
-    if (lowerTitle === query) return 1000;
-    if (lowerTitle.startsWith(query)) score += 500;
-
+    if (lowerTitle === query) return 2000;
     const levDistance = levenshtein(lowerTitle, query);
-    score += Math.max(0, 100 - levDistance * 10);
+    if (levDistance <= TYPO_TOLERANCE) score += 1500 - levDistance * 200;
+    if (lowerTitle.startsWith(query)) score += 1000;
+    if (lowerTitle.includes(query)) score += 500;
+    if (lowerDesc.includes(query)) score += 200;
 
     const queryWords = query.split(/\s+/);
     const titleWords = lowerTitle.split(/\s+/);
     const matchedWords = queryWords.filter(qw => titleWords.some(tw => tw.includes(qw))).length;
-    score += matchedWords * 50;
+    score += matchedWords * 100;
 
     return score;
 }
@@ -133,42 +226,114 @@ function updateHighlight(suggestions) {
     }
 }
 
-function debounce(func, wait) {
+function createOptimizedDebounce(func, wait) {
+    let currentRequestId = 0;
     let timeout;
-    return function (...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
+
+    return async function (...args) {
+        const requestId = ++currentRequestId;
+
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+
+        return new Promise((resolve, reject) => {
+            timeout = setTimeout(async () => {
+                if (requestId === currentRequestId) {
+                    try {
+                        const result = await func.apply(this, args);
+                        resolve(result);
+                    } catch (error) {
+                        reject(error);
+                    }
+                }
+            }, wait);
+        });
     };
 }
 
-const debouncedSearch = debounce(async () => {
+const debouncedSearch = createOptimizedDebounce(async () => {
     const q = input.value.trim();
     results.innerHTML = '';
     suggestionsList.innerHTML = '';
     suggestionsList.classList.add('hidden');
+    searchInfo.classList.add('hidden');
+    timeoutWarning.classList.add('hidden');
     clearButton.classList.toggle('hidden', !q);
 
     if (!q) return;
 
-    const [search, titles, descs, links] = await searchWikipedia(q);
+    loading.classList.remove('hidden');
+    const startTime = performance.now();
 
-    if (titles.length > 0) {
-        const prioritizedResults = prioritizeResults(titles, descs, links, q);
-        prioritizedResults.forEach(({ title, desc, link }) => {
-            const el = document.createElement("div");
-            el.className = "bg-white p-5 rounded-lg shadow-md hover:shadow-xl transition-all duration-300 fade-in";
-            el.innerHTML = `
-                <a href="${link}" target="_blank" class="text-blue-600 text-xl font-semibold hover:underline">${title}</a>
-                <p class="text-sm text-gray-600 mt-2">${desc || "No description available."}</p>
-            `;
-            results.appendChild(el);
-        });
-    } else {
-        const altQuery = await suggestAlternative(q);
-        updateSuggestions(altQuery);
-        if (!altQuery.length) {
-            results.innerHTML = `<p class="text-gray-500 text-center fade-in">No results found. Try another search term.</p>`;
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+            reject(new Error('Search timeout'));
+        }, SEARCH_TIMEOUT);
+    });
+
+    try {
+        const lang = languageSelect.value;
+        const data = await Promise.race([searchWikipedia(q, lang), timeoutPromise]);
+        const searchItems = data.search;
+        const pages = data.pages;
+        const titles = data.titles;
+        const suggestions = await suggestAlternative(q, lang);
+
+        const endTime = performance.now();
+        const searchTime = ((endTime - startTime) / 1000).toFixed(3);
+
+        const isExactMatch = titles.some(title => title.toLowerCase() === q.toLowerCase()) || 
+                            searchItems.some(item => item.title.toLowerCase() === q.toLowerCase());
+        const searchMessage = isExactMatch
+            ? i18next.t("search_results_for", { query: q, time: searchTime })
+            : i18next.t("search_results_similar", { query: q, time: searchTime });
+        searchInfo.innerHTML = searchMessage;
+        searchInfo.classList.remove('hidden');
+
+        if (titles.length > 0 || searchItems.length > 0) {
+            const prioritizedResults = prioritizeResults(searchItems, pages, titles, q);
+            prioritizedResults.forEach(({ title, desc, link }) => {
+                const el = document.createElement("div");
+                el.className = "bg-white p-5 rounded-lg shadow-md hover:bg-gray-50 transition-colors duration-200 fade-in";
+                el.innerHTML = `
+                    <a href="${link}" target="_blank" class="text-blue-600 text-xl font-semibold hover:underline">${title}</a>
+                    <p class="text-sm text-gray-600 mt-2">${desc}</p>
+                `;
+                results.appendChild(el);
+            });
+
+            if (!isExactMatch && suggestions.length > 0) {
+                const closestSuggestion = suggestions.reduce((closest, title) => {
+                    const distance = levenshtein(title.toLowerCase(), q.toLowerCase());
+                    return distance < closest.distance ? { term: title, distance } : closest;
+                }, { term: '', distance: Infinity });
+
+                if (closestSuggestion.distance <= TYPO_TOLERANCE) {
+                    const recommendation = document.createElement("div");
+                    recommendation.className = "mt-4 text-gray-600 fade-in";
+                    recommendation.innerHTML = i18next.t("recommend_search", { term: closestSuggestion.term });
+                    results.insertBefore(recommendation, results.firstChild);
+                    recommendation.querySelector('#recommendLink').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        input.value = closestSuggestion.term;
+                        input.dispatchEvent(new Event("input"));
+                    });
+                }
+            }
+        } else {
+            updateSuggestions(suggestions);
+            if (!suggestions.length) {
+                results.innerHTML = `<p class="text-gray-500 text-center fade-in">${i18next.t("no_results")}</p>`;
+            }
         }
+    } catch (error) {
+        if (error.message === 'Search timeout') {
+            timeoutWarning.classList.remove('hidden');
+            results.innerHTML = `<p class="text-gray-500 text-center fade-in">${i18next.t("failed_search")}</p>`;
+        }
+    } finally {
+        loading.classList.add('hidden');
     }
 }, 300);
 
@@ -179,4 +344,8 @@ clearButton.addEventListener("click", () => {
     input.value = '';
     debouncedSearch();
     input.focus();
+});
+
+retryButton.addEventListener("click", () => {
+    debouncedSearch();
 });
