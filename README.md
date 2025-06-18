@@ -28,6 +28,8 @@ It uses an external public API (Wikipedia) to retrieve live search results, whil
 
 - Wikipedia OpenSearch API:  
   `https://en.wikipedia.org/w/api.php?action=opensearch&search=QUERY&limit=10&namespace=0&format=json&origin=*`
+- Wikipedia Query Search API (with description/snippet)
+  `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&list=search&srsearch=QUERY&srlimit=15`
 
 ## 📁 How to Use
 
