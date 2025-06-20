@@ -7,6 +7,7 @@ const loading = document.getElementById("loading");
 const searchInfo = document.getElementById("searchInfo");
 const timeoutWarning = document.getElementById("timeoutWarning");
 const retryButton = document.getElementById("retryButton");
+const footerText = document.getElementById("footerText");
 let selectedSuggestionIndex = -1;
 
 const searchCache = new Map();
@@ -26,7 +27,19 @@ i18next.init({
                 "search_results_for": "Result for \"{{query}}\" in {{time}} seconds",
                 "search_results_similar": "Result for \"{{query}}\" or similar in {{time}} seconds",
                 "failed_search": "Failed to search. Please try again.",
-                "recommend_search": "Did you mean to search for \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?"
+                "recommend_search": "Did you mean to search for \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?",
+                "random_suggestions": [
+                    "Artificial Intelligence",
+                    "Quantum Computing",
+                    "Space Exploration",
+                    "Climate Change",
+                    "Blockchain Technology",
+                    "Machine Learning",
+                    "Deep Learning",
+                    "Renewable Energy",
+                    "Augmented Reality",
+                    "Cybersecurity"
+                ]
             }
         },
         id: {
@@ -37,18 +50,32 @@ i18next.init({
                 "search_results_for": "Hasil untuk \"{{query}}\" dalam {{time}} detik",
                 "search_results_similar": "Hasil untuk \"{{query}}\" atau yang mirip dalam {{time}} detik",
                 "failed_search": "Gagal mencari. Silakan coba lagi.",
-                "recommend_search": "Apakah Anda ingin mencari \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?"
+                "recommend_search": "Apakah Anda ingin mencari \"<a href='#' id='recommendLink' class='text-blue-600 hover:underline'>{{term}}</a>\"?",
+                "random_suggestions": [
+                    "Kecerdasan Buatan",
+                    "Komputasi Kuantum",
+                    "Eksplorasi Luar Angkasa",
+                    "Perubahan Iklim",
+                    "Teknologi Blockchain",
+                    "Pembelajaran Mesin",
+                    "Pembelajaran Mendalam",
+                    "Energi Terbarukan",
+                    "Realitas Tertambah",
+                    "Keamanan Siber"
+                ]
             }
         }
     }
 }, function (err, t) {
     languageSelect.value = savedLang;
     updateLanguage();
+    showRandomSuggestions();
 });
 
 function updateLanguage() {
     document.getElementById("search-title").textContent = i18next.t("search_title");
     document.getElementById("searchInput").placeholder = i18next.t("search_placeholder");
+    footerText.textContent = i18next.t("footer_text");
 }
 
 languageSelect.addEventListener("change", () => {
@@ -56,6 +83,7 @@ languageSelect.addEventListener("change", () => {
     localStorage.setItem('language', newLang);
     i18next.changeLanguage(newLang, () => {
         updateLanguage();
+        showRandomSuggestions();
         debouncedSearch();
     });
 });
@@ -158,12 +186,22 @@ function calculateScore(title, desc, query) {
     const lowerDesc = desc.toLowerCase();
     let score = 0;
 
-    if (lowerTitle === query) return 2000;
+    if (lowerTitle === query) {
+        score += 2000;
+    }
     const levDistance = levenshtein(lowerTitle, query);
-    if (levDistance <= TYPO_TOLERANCE) score += 1500 - levDistance * 200;
-    if (lowerTitle.startsWith(query)) score += 1000;
-    if (lowerTitle.includes(query)) score += 500;
-    if (lowerDesc.includes(query)) score += 200;
+    if (levDistance <= TYPO_TOLERANCE) {
+        score += 1500 - levDistance * 200;
+    }
+    if (lowerTitle.startsWith(query)) {
+        score += 1000;
+    }
+    if (lowerTitle.includes(query)) {
+        score += 500;
+    }
+    if (lowerDesc.includes(query)) {
+        score += 200;
+    }
 
     const queryWords = query.split(/\s+/);
     const titleWords = lowerTitle.split(/\s+/);
@@ -180,8 +218,10 @@ function updateSuggestions(suggestions) {
         suggestionsList.classList.remove('hidden');
         suggestions.forEach((s, index) => {
             const li = document.createElement("li");
-            li.className = "p-3 hover:bg-gray-100 cursor-pointer text-gray-700 transition-colors duration-150 fade-in";
-            li.textContent = s;
+            const p = document.createElement("p");
+            p.textContent = s;
+            p.className = "p-3 hover:bg-gray-100 cursor-pointer text-gray-700 transition-colors duration-150 fade-in";
+            li.appendChild(p);
             li.onclick = () => {
                 input.value = s;
                 input.dispatchEvent(new Event("input"));
@@ -198,6 +238,12 @@ function updateSuggestions(suggestions) {
     }
 }
 
+function showRandomSuggestions() {
+    const suggestions = i18next.t("random_suggestions", { returnObjects: true });
+    const shuffled = suggestions.sort(() => 0.5 - Math.random()).slice(0, 3);
+    updateSuggestions(shuffled);
+}
+
 function handleKeyNavigation(e) {
     const suggestions = suggestionsList.querySelectorAll('li');
     if (!suggestions.length) return;
@@ -212,7 +258,7 @@ function handleKeyNavigation(e) {
         updateHighlight(suggestions);
     } else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
         e.preventDefault();
-        input.value = suggestions[selectedSuggestionIndex].textContent;
+        input.value = suggestions[selectedSuggestionIndex].querySelector('p').textContent;
         input.dispatchEvent(new Event("input"));
     }
 }
@@ -261,7 +307,10 @@ const debouncedSearch = createOptimizedDebounce(async () => {
     timeoutWarning.classList.add('hidden');
     clearButton.classList.toggle('hidden', !q);
 
-    if (!q) return;
+    if (!q) {
+        showRandomSuggestions();
+        return;
+    }
 
     loading.classList.remove('hidden');
     const startTime = performance.now();
@@ -305,7 +354,7 @@ const debouncedSearch = createOptimizedDebounce(async () => {
 
             if (!isExactMatch && suggestions.length > 0) {
                 const closestSuggestion = suggestions.reduce((closest, title) => {
-                    const distance = levenshtein(title.toLowerCase(), q.toLowerCase());
+                    const distance = levenshtein(title.toLowerCase(), query.toLowerCase());
                     return distance < closest.distance ? { term: title, distance } : closest;
                 }, { term: '', distance: Infinity });
 
@@ -349,3 +398,5 @@ clearButton.addEventListener("click", () => {
 retryButton.addEventListener("click", () => {
     debouncedSearch();
 });
+
+showRandomSuggestions();
